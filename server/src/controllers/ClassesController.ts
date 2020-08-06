@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
-import db from '../database/connection';
 
+import db from '../database/connection';
 import convertHourToMinutes from '../utils/convertHourToMinutes';
 
 interface IScheduleItem {
@@ -10,7 +10,50 @@ interface IScheduleItem {
 }
 
 export default class ClassesController {
-  public async create(request: Request, response: Response) {
+  async index(request: Request, response: Response) {
+    const filters = request.query;
+
+    const subject = filters.subject as string;
+    const week_day = filters.week_day as string;
+    const time = filters.time as string;
+
+    if(!week_day || !subject || !time) {
+      return response.status(400).json({
+        error: 'Missing filters to search for classes'
+      });
+    };
+
+    const timeInMinutes = convertHourToMinutes(time as string);
+
+    const trx = await db.transaction();
+
+    try {
+      const classes = await trx('classes')
+        .whereExists(function() {
+          this.select('class_schedule.*')
+            .from('class_schedule')
+            .whereRaw('`class_schedule`.`class_id` = `classes`.`id`')
+            .whereRaw('`class_schedule`.`week_day` = ??', [Number(week_day)])
+            .whereRaw('`class_schedule`.`from` <= ??', [timeInMinutes])
+            .whereRaw('`class_schedule`.`to` > ??', [timeInMinutes])
+        })
+        .where('classes.subject', '=', subject)
+        .join('users', 'classes.user_id', '=', 'users.id')
+        .select(['classes.*', 'users.*']);
+
+      await trx.commit();
+
+      return response.status(200).json(classes);
+    } catch (err) {
+      await trx.rollback();
+
+      return response.status(400).json({
+        error: `Unexpected error while creating new class - ${err}`
+      });
+    }
+  };
+
+  async create(request: Request, response: Response) {
     const {
       name,
       avatar,
@@ -59,4 +102,5 @@ export default class ClassesController {
       });
     }
   };
+
 }
