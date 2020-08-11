@@ -1,20 +1,73 @@
-import React, { useState, useCallback } from 'react';
-import { View, ScrollView, Text, TextInput } from 'react-native';
+import React, { useState, useCallback, useRef } from 'react';
+import { View, ScrollView, Text } from 'react-native';
 import { BorderlessButton, RectButton } from 'react-native-gesture-handler';
 
-import { Feather } from '@expo/vector-icons';
+import { Form } from '@unform/mobile';
+import { FormHandles } from '@unform/core';
+
+import api from '../../services/api';
+import AsyncStorage from '@react-native-community/async-storage';
 
 import PageHeader from '../../components/PageHeader';
-import TeacherItem from '../../components/TeacherItem';
+import TeacherItem, { Teacher } from '../../components/TeacherItem';
+import Input from '../../components/Input';
 
+import { Feather } from '@expo/vector-icons';
 import styles from './styles';
+import { useFocusEffect } from '@react-navigation/native';
+
+interface SearchTeachersData {
+  subject: string;
+  week_day: string;
+  time: string;
+}
 
 const TeacherList: React.FC = () => {
+  const formRef = useRef<FormHandles>(null);
+
+  const [teachers, setTeachers] = useState([]);
+  const [favorites, setFavorites] = useState<string[]>([]);
   const [filtersVisible, setFiltersVisible] = useState(false);
+
+  const handleFiltersSubmit = useCallback(async ({
+    week_day,
+    subject,
+    time
+  }: SearchTeachersData) => {
+    loadFavorites();
+
+    const { data } = await api.get('/classes', {
+      params: {
+        subject,
+        week_day,
+        time
+      }
+    });
+
+    setTeachers(data);
+    setFiltersVisible(false);
+  }, []);
 
   const handleToggleFiltersVisibility = () => {
     setFiltersVisible(!filtersVisible);
   };
+
+  const loadFavorites = async () => {
+    const response = await AsyncStorage.getItem('favorites');
+
+    if(response) {
+      const favoritedTeachers = JSON.parse(response);
+      const favoritedTeachersIds = favoritedTeachers.map(
+        (teacher: Teacher) => (teacher.id)
+      );
+
+      setFavorites(favoritedTeachersIds);
+    }
+  };
+
+  useFocusEffect(() => {
+    loadFavorites();
+  })
 
   return (
     <View style={styles.container}>
@@ -27,38 +80,40 @@ const TeacherList: React.FC = () => {
         )}
       >
         {filtersVisible && (
-          <View style={styles.searchForm}>
+          <Form
+            ref={formRef}
+            onSubmit={handleFiltersSubmit}
+            style={styles.searchForm}
+          >
+
             <Text style={styles.label}>Matéria</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Qual a matéria?"
-              placeholderTextColor="#c1bccc"
-            />
+            <Input name="subject" placeholder="Qual a matéria?"/>
 
             <View style={styles.inputGroup}>
               <View style={styles.inputBlock}>
                 <Text style={styles.label}>Dia da semana</Text>
-                <TextInput
-                  style={styles.input}
+                <Input
+                  name="week_day"
                   placeholder="Qual o dia?"
-                  placeholderTextColor="#c1bccc"
                 />
               </View>
 
               <View style={styles.inputBlock}>
                 <Text style={styles.label}>Horário</Text>
-                <TextInput
-                  style={styles.input}
+                <Input
+                  name="time"
                   placeholder="Qual horário?"
-                  placeholderTextColor="#c1bccc"
                 />
               </View>
             </View>
 
-            <RectButton onPress={() => {}} style={styles.filterButton}>
+            <RectButton
+              onPress={() => formRef.current?.submitForm()}
+              style={styles.filterButton}
+            >
               <Text style={styles.filterButtonText}>Filtrar</Text>
             </RectButton>
-          </View>
+          </Form>
         )}
       </PageHeader>
 
@@ -69,7 +124,13 @@ const TeacherList: React.FC = () => {
           paddingBottom: 24,
         }}
       >
-        <TeacherItem />
+        {teachers.length > 0 && teachers.map((teacher: Teacher) => (
+          <TeacherItem
+            key={teacher.id}
+            teacher={teacher}
+            favorited={favorites.includes(teacher.id)}
+          />
+        ))}
       </ScrollView>
     </View>
   )
